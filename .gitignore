@@ -3,3 +3,10 @@ raw
 .DS_Store
 node_modules
 npm-debug.log
+tmp
+coverage/
+lib/
+build/
+index.html
+docs/
+.jsdoc-temp/

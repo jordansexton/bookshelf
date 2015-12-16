@@ -3,7 +3,6 @@
 module.exports = function(Bookshelf) {
 
   var _ = require('lodash');
-  _.str = require('underscore.string');
 
   function _parsed (attributes) {
     var parsed = {};
@@ -48,8 +47,14 @@ module.exports = function(Bookshelf) {
     authors: function() {
       return this.hasMany(Author);
     },
+    authorsParsed: function() {
+      return this.hasMany(AuthorParsed);
+    },
     photos: function() {
       return this.morphMany(Photo, 'imageable');
+    },
+    thumbnails: function() {
+      return this.morphMany(Thumbnail, 'imageable', ["ImageableType", "ImageableId"]);
     },
     blogs: function() {
       return this.hasMany(Blog);
@@ -88,6 +93,9 @@ module.exports = function(Bookshelf) {
     },
     photo: function() {
       return this.morphOne(Photo, 'imageable');
+    },
+    thumbnail: function() {
+      return this.morphOne(Thumbnail, 'imageable', ["ImageableType", "ImageableId"]);
     },
     posts: function() {
       return this.belongsToMany(Post);
@@ -137,12 +145,10 @@ module.exports = function(Bookshelf) {
   var Post = Bookshelf.Model.extend({
     tableName: 'posts',
     defaults: {
-      author: '',
-      title: '',
-      body: '',
-      published: false
+      name: '',
+      content: ''
     },
-    hasTimestamps: true,
+    hasTimestamps: false,
     blog: function() {
       return this.belongsTo(Blog);
     },
@@ -170,7 +176,7 @@ module.exports = function(Bookshelf) {
     tableName: 'comments',
     defaults: {
       email: '',
-      post: ''
+      comment: ''
     },
     posts: function() {
       return this.belongsTo(Post);
@@ -213,6 +219,13 @@ module.exports = function(Bookshelf) {
     }
   });
 
+  var Thumbnail = Bookshelf.Model.extend({
+    tableName: 'thumbnails',
+    imageable: function() {
+      return this.morphTo('imageable', ["ImageableType", "ImageableId"], Site, Author);
+    }
+  });
+
   // A PhotoParsed appends "_parsed" to each field name on fetch
   // and removes "_parsed" when formatted
   var PhotoParsed = Photo.extend({
@@ -251,12 +264,12 @@ module.exports = function(Bookshelf) {
   var ParsedModel = Bookshelf.Model.extend({
     format: function (attrs) {
       return _.transform(attrs, function (result, val, key) {
-        result[_.str.underscored(key)] = val;
+        result[_.snakeCase(key)] = val;
       });
     },
     parse: function (attrs) {
       return _.transform(attrs, function (result, val, key) {
-        result[_.str.camelize(key)] = val;
+        result[_.camelCase(key)] = val;
       });
     }
   });
@@ -272,6 +285,68 @@ module.exports = function(Bookshelf) {
   // Has columns: id, email, first_name, last_name
   var UserParsed = ParsedModel.extend({
     tableName: 'parsed_users',
+  });
+
+
+  /**
+   * Issue #578 - lifecycle events on pivot model for belongsToMany().through()
+   *
+   * Here we bootstrap some models involved in a .belongsToMany().through()
+   * relationship. The models are overridden with actual relationship methods
+   * e.g. `lefts: function () { return this.belongsToMany(LeftModel).through(JoinModel) }`
+   * within the tests to ensure the appropriate lifecycle events are being
+   * triggered.
+   */
+
+  var LeftModel = Bookshelf.Model.extend({
+    tableName: 'lefts'
+  });
+
+  var RightModel = Bookshelf.Model.extend({
+    tableName: 'rights'
+  });
+
+  var JoinModel = Bookshelf.Model.extend({
+    tableName: 'lefts_rights',
+    defaults: { parsedName: '' },
+    format: function (attrs) {
+      return _.reduce(attrs, function(memo, val, key) {
+        memo[_.snakeCase(key)] = val;
+        return memo;
+      }, {});
+    },
+    parse: function (attrs) {
+      return _.reduce(attrs, function(memo, val, key) {
+        memo[_.camelCase(key)] = val;
+        return memo;
+      }, {});
+    },
+    lefts: function() {
+      return this.belongsTo(LeftModel);
+    },
+    rights: function() {
+      return this.belongsTo(RightModel);
+    }
+  });
+
+  var OrgModel = Bookshelf.Model.extend({
+    tableName: 'organization',
+    // defaults: { parsedName: '' },
+    idAttribute: 'organization_id',
+    format: function (fields) {
+      var cols = {};
+      for (var f in fields) {
+        cols['organization_'+f] = fields[f];
+      }
+      return cols;
+    },
+    parse: function (cols) {
+      var fields = {};
+      for (var c in cols) {
+        fields[c.replace (/^organization_/, '')] = cols[c];
+      }
+      return fields;
+    }
   });
 
   return {
@@ -293,12 +368,17 @@ module.exports = function(Bookshelf) {
       Role: Role,
       Photo: Photo,
       PhotoParsed: PhotoParsed,
+      Thumbnail: Thumbnail,
       Info: Info,
       Customer: Customer,
       Settings: Settings,
       Instance: Instance,
       Hostname: Hostname,
-      Uuid: Uuid
+      Uuid: Uuid,
+      LeftModel: LeftModel,
+      RightModel: RightModel,
+      JoinModel: JoinModel,
+      OrgModel: OrgModel
     }
   };
 
